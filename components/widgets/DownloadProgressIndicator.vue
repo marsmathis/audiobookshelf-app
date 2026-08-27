@@ -70,7 +70,13 @@ export default {
     onDownloadItem(downloadItem) {
       console.log('DownloadProgressIndicator onDownloadItem', JSON.stringify(downloadItem))
 
-      downloadItem.itemProgress = 0
+      let totalBytes = 0
+      let downloadedBytes = 0
+      ;(downloadItem.downloadItemParts || []).forEach((part) => {
+        totalBytes += part.completed ? Number(part.bytesDownloaded || 0) : Number(part.fileSize || 0)
+        downloadedBytes += Number(part.bytesDownloaded || 0)
+      })
+      downloadItem.itemProgress = totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0
       downloadItem.episodes = downloadItem.downloadItemParts.filter((dip) => dip.episode).map((dip) => dip.episode)
 
       this.$store.commit('globals/addUpdateItemDownload', downloadItem)
@@ -79,7 +85,7 @@ export default {
       this.$store.commit('globals/updateDownloadItemPart', itemPart)
     },
     onQueueChanged(data) {
-      if (!data.hasWork) this.$store.commit('globals/clearItemDownloads')
+      console.log('DownloadProgressIndicator onQueueChanged', JSON.stringify(data))
     }
   },
   async mounted() {

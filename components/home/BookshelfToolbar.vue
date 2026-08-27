@@ -96,6 +96,11 @@ export default {
             text: this.$strings.LabelCollapseSeries,
             value: 'collapse_subseries',
             icon: this.settings.collapseBookSeries ? 'check_box' : 'check_box_outline_blank'
+          },
+          {
+            text: this.$strings.ButtonDeleteAllLocalFiles,
+            value: 'delete_series_local_files',
+            icon: 'delete_sweep'
           }
         ]
       } else {
@@ -118,6 +123,8 @@ export default {
       } else if (action === 'collapse_subseries') {
         this.settings.collapseBookSeries = !this.settings.collapseBookSeries
         this.saveSettings()
+      } else if (action === 'delete_series_local_files') {
+        this.$eventBus.$emit('delete-series-local-files')
       }
     },
     updateOrder() {

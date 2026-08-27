@@ -78,9 +78,38 @@
           </div>
         </div>
 
-        <div v-if="downloadItem" class="py-3">
-          <p v-if="downloadItem.itemProgress == 1" class="text-center text-lg">{{ $strings.MessageDownloadCompleteProcessing }}</p>
-          <p v-else class="text-center text-lg">{{ $strings.MessageDownloading }} ({{ Math.round(downloadItem.itemProgress * 100) }}%)</p>
+        <div v-if="downloadItem" class="mt-4 rounded-md border border-border bg-primary p-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-fg">{{ downloadStatusText }}</p>
+              <p class="text-xs text-fg-muted truncate">{{ downloadPartsSummary }}</p>
+              <button v-if="downloadEtaSeconds !== null" class="text-left text-xs text-info hover:underline" type="button" :title="$strings.MessageDownloadEtaToggle" @click="showAbsoluteDownloadEta = !showAbsoluteDownloadEta">
+                {{ downloadEtaText }}
+              </button>
+            </div>
+            <p class="text-sm font-semibold text-fg">{{ Math.round(downloadItem.itemProgress * 100) }}%</p>
+          </div>
+          <div class="mt-2 h-2 overflow-hidden rounded-sm bg-bg">
+            <div class="h-full bg-success transition-all" :style="{ width: `${Math.round(downloadItem.itemProgress * 100)}%` }" />
+          </div>
+          <div class="mt-3 flex items-center justify-end gap-2">
+            <ui-btn v-if="downloadCanPause" color="primary" small :padding-x="2" @click="pauseDownload">
+              <span class="material-symbols text-lg">pause</span>
+              <span class="px-1 text-sm">{{ $strings.ButtonPause }}</span>
+            </ui-btn>
+            <ui-btn v-if="downloadCanResume" color="success" small :padding-x="2" @click="resumeDownload">
+              <span class="material-symbols text-lg">play_arrow</span>
+              <span class="px-1 text-sm">{{ $strings.ButtonResume }}</span>
+            </ui-btn>
+            <ui-btn v-if="downloadCanRetry" color="warning" small :padding-x="2" @click="retryDownload">
+              <span class="material-symbols text-lg">refresh</span>
+              <span class="px-1 text-sm">{{ $strings.ButtonRetry }}</span>
+            </ui-btn>
+            <ui-btn color="error" small :padding-x="2" @click="cancelDownload">
+              <span class="material-symbols text-lg">{{ downloadCanRetry ? 'close' : 'cancel' }}</span>
+              <span class="px-1 text-sm">{{ downloadCanRetry ? $strings.ButtonClear : $strings.ButtonCancel }}</span>
+            </ui-btn>
+          </div>
         </div>
 
         <!-- metadata -->
@@ -221,7 +250,11 @@ export default {
       descriptionClamped: false,
       showFullDescription: false,
       episodeStartingPlayback: null,
-      startingDownload: false
+      startingDownload: false,
+      downloadStatusNow: Date.now(),
+      downloadCountdownTimer: null,
+      lastKnownDownloadQueueSpeed: 0,
+      showAbsoluteDownloadEta: false
     }
   },
   mixins: [cellularPermissionHelpers],
@@ -473,6 +506,79 @@ export default {
     downloadItem() {
       return this.$store.getters['globals/getDownloadItem'](this.libraryItemId)
     },
+    downloadStatusText() {
+      if (!this.downloadItem) return ''
+      const parts = this.downloadItem.downloadItemParts || []
+      if (this.downloadItem.isPaused) return this.$strings.MessageDownloadPaused
+      if (parts.some((part) => part.failed)) return this.$strings.MessageDownloadInterrupted
+      if (parts.some((part) => part.waitingForWifi)) return this.$strings.MessageWaitingForWifi
+      if (parts.some((part) => part.waitingForNetwork)) return this.$strings.MessageWaitingForNetwork || 'Waiting for network'
+      if (parts.some((part) => part.waitingForSpace)) return this.$strings.MessageWaitingForAvailableStorage || 'Waiting for available storage'
+      const retryingPart = parts.find((part) => part.waitingForRetry)
+      if (retryingPart) return this.getDownloadRetryText(retryingPart)
+      if (this.downloadItem.itemProgress == 1) return this.$strings.MessageDownloadCompleteProcessing
+      if (!parts.some((part) => !part.completed && (part.downloadId != null || part.isMoving))) return this.$strings.MessageDownloadQueued
+      return this.$strings.MessageDownloading
+    },
+    currentDownloadQueueSpeed() {
+      return this.$store.state.globals.itemDownloads.reduce(
+        (itemTotal, item) => itemTotal + (item.downloadItemParts || []).reduce((partTotal, part) => partTotal + Number(part.bytesPerSecond || 0), 0),
+        0
+      )
+    },
+    downloadEstimateSpeed() {
+      return this.currentDownloadQueueSpeed || this.lastKnownDownloadQueueSpeed
+    },
+    downloadEtaSeconds() {
+      if (!this.downloadItem || !this.downloadEstimateSpeed || this.downloadItem.isPaused || this.downloadCanRetry) return null
+      const queue = this.$store.state.globals.itemDownloads
+      if (queue.some((item) => (item.downloadItemParts || []).some((part) => part.waitingForNetwork || part.waitingForSpace))) return null
+      let remainingBytes = 0
+      let retrySeconds = 0
+      for (const item of queue) {
+        const parts = item.downloadItemParts || []
+        const isEligible = !item.isPaused && !parts.some((part) => part.failed) && parts.some((part) => !part.completed)
+        if (isEligible) {
+          for (const part of parts) {
+            if (part.completed) continue
+            const size = Number(part.fileSize || 0)
+            if (size <= 0) return null
+            remainingBytes += Math.max(0, size - Number(part.bytesDownloaded || 0))
+          }
+          const retryAfter = Math.max(...parts.filter((part) => part.waitingForRetry).map((part) => Number(part.retryAfterTime || 0)), 0)
+          retrySeconds += Math.max(0, Math.ceil((retryAfter - this.downloadStatusNow) / 1000))
+        }
+        if (item.id === this.downloadItem.id) {
+          return isEligible ? Math.ceil(remainingBytes / this.downloadEstimateSpeed) + retrySeconds : null
+        }
+      }
+      return null
+    },
+    downloadEtaText() {
+      if (this.downloadEtaSeconds === null) return ''
+      if (this.showAbsoluteDownloadEta) {
+        const format = this.downloadEtaSeconds >= 86400 ? 'MMM d, HH:mm' : 'HH:mm'
+        return this.$getString('MessageDownloadEstimatedDoneAt', [this.$formatDate(this.downloadStatusNow + this.downloadEtaSeconds * 1000, format)])
+      }
+      return this.$getString('MessageDownloadEstimatedRemaining', [this.$elapsedPretty(this.downloadEtaSeconds)])
+    },
+    downloadPartsSummary() {
+      if (!this.downloadItem) return ''
+      const parts = this.downloadItem.downloadItemParts || []
+      const completed = parts.filter((part) => part.completed).length
+      const speed = parts.reduce((total, part) => total + Number(part.bytesPerSecond || 0), 0)
+      return `${completed}/${parts.length} files${speed ? ` · ${this.formatDownloadSpeed(speed)}` : ''}`
+    },
+    downloadCanPause() {
+      return this.downloadItem && !this.downloadItem.isPaused && !this.downloadCanRetry && this.downloadItem.itemProgress < 1
+    },
+    downloadCanResume() {
+      return !!this.downloadItem?.isPaused
+    },
+    downloadCanRetry() {
+      const parts = this.downloadItem?.downloadItemParts || []
+      return parts.some((part) => part.failed)
+    },
     episodes() {
       return this.media.episodes || []
     },
@@ -491,7 +597,26 @@ export default {
       return this.coverWidth * this.bookCoverAspectRatio
     }
   },
+  watch: {
+    currentDownloadQueueSpeed(speed) {
+      if (speed > 0) this.lastKnownDownloadQueueSpeed = speed
+    }
+  },
   methods: {
+    getDownloadRetryText(part) {
+      const seconds = Math.max(0, Math.ceil((Number(part.retryAfterTime || 0) - this.downloadStatusNow) / 1000))
+      return this.$getString('MessageDownloadRetryingIn', [seconds])
+    },
+    formatDownloadSpeed(bytesPerSecond) {
+      let value = Number(bytesPerSecond || 0)
+      const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+      let unit = 0
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024
+        unit++
+      }
+      return `${value.toFixed(unit > 0 && value < 10 ? 1 : 0)} ${units[unit]}`
+    },
     clickMissingButton() {
       Dialog.alert({
         title: this.$strings.LabelMissing,
@@ -684,7 +809,8 @@ export default {
     },
     async startDownload(localFolder = null) {
       const payload = {
-        libraryItemId: this.libraryItemId
+        libraryItemId: this.libraryItemId,
+        allowCellularDownload: this.getDownloadAllowsCellular()
       }
       if (localFolder) {
         console.log('Starting download to local folder', localFolder.name)
@@ -696,6 +822,24 @@ export default {
         console.error('Download error', errorMsg)
         this.$toast.error(errorMsg)
       }
+    },
+    async pauseDownload() {
+      if (!this.downloadItem) return
+      await AbsDownloader.pauseDownloadItem({ downloadItemId: this.downloadItem.id })
+    },
+    async resumeDownload() {
+      if (!this.downloadItem) return
+      await AbsDownloader.resumeDownloadItem({ downloadItemId: this.downloadItem.id })
+    },
+    async retryDownload() {
+      if (!this.downloadItem) return
+      await AbsDownloader.retryDownloadItem({ downloadItemId: this.downloadItem.id })
+    },
+    async cancelDownload() {
+      if (!this.downloadItem) return
+      const downloadItemId = this.downloadItem.id
+      const result = await AbsDownloader.cancelDownloadItem({ downloadItemId })
+      if (result?.value !== false) this.$store.commit('globals/removeItemDownload', downloadItemId)
     },
     newLocalLibraryItem(item) {
       if (item.libraryItemId == this.libraryItemId) {
@@ -789,8 +933,13 @@ export default {
       await this.loadServerLibraryItem()
     }
     this.init()
+    if (this.currentDownloadQueueSpeed > 0) this.lastKnownDownloadQueueSpeed = this.currentDownloadQueueSpeed
+    this.downloadCountdownTimer = setInterval(() => {
+      this.downloadStatusNow = Date.now()
+    }, 1000)
   },
   beforeDestroy() {
+    clearInterval(this.downloadCountdownTimer)
     window.removeEventListener('resize', this.windowResized)
     this.$eventBus.$off('library-changed', this.libraryChanged)
     this.$eventBus.$off('new-local-library-item', this.newLocalLibraryItem)

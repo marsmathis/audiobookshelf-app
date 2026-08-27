@@ -485,7 +485,8 @@ export default {
     async startDownload(localFolder) {
       const payload = {
         libraryItemId: this.libraryItemId,
-        episodeId: this.episode.id
+        episodeId: this.episode.id,
+        allowCellularDownload: this.getDownloadAllowsCellular()
       }
       if (localFolder) {
         payload.localFolderId = localFolder.id

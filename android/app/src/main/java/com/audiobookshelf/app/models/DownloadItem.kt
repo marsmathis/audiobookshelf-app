@@ -20,6 +20,9 @@ data class DownloadItem(
         val itemSubfolder: String,
         val media: MediaType,
         val downloadItemParts: MutableList<DownloadItemPart>,
+        var allowCellularDownload: Boolean = false,
+        var isPaused: Boolean = false,
+        var queuePosition: Int = 0,
         @JsonIgnore var terminalFailureAt: Long? = null,
         @JsonIgnore var stagingCleanupAt: Long? = null
 ) {
@@ -32,6 +35,10 @@ data class DownloadItem(
     get() = downloadItemParts.isNotEmpty() && downloadItemParts.all {
       it.completed && it.moved && !it.isMoving && !it.failed
     }
+
+  @get:JsonIgnore
+  val isFailed
+    get() = terminalFailureAt != null || downloadItemParts.any { it.failed }
 
   @JsonIgnore
   fun getNextDownloadItemParts(limit: Int): MutableList<DownloadItemPart> {

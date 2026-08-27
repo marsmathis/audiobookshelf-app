@@ -40,7 +40,11 @@ object IncompleteDownloadCleanup {
     DeviceManager.dbManager.getDownloadItems()
             .filter { item -> isEligible(item, now) }
             .forEach { item ->
-              deleteItem(context, item)
+              try {
+                deleteItem(context, item)
+              } catch (e: Exception) {
+                AbsLogger.error(tag, "Could not clean expired download item ${item.id}: ${e.message}")
+              }
             }
   }
 
@@ -55,7 +59,7 @@ object IncompleteDownloadCleanup {
 
   private fun deleteItem(context: Context, item: DownloadItem) {
     item.downloadItemParts.forEach { part ->
-      deleteAppOwnedFile(context, File(part.destinationPath))
+      deleteAppOwnedFile(context, part.destinationPath)
       if (!part.moved) {
         part.bytesDownloaded = 0L
         part.completed = false
@@ -67,7 +71,9 @@ object IncompleteDownloadCleanup {
     AbsLogger.info(tag, "Deleted staging files for terminally failed download item ${item.id}")
   }
 
-  private fun deleteAppOwnedFile(context: Context, file: File) {
+  private fun deleteAppOwnedFile(context: Context, filePath: String?) {
+    if (filePath.isNullOrBlank()) return
+    val file = File(filePath)
     val path = file.absolutePath
     val internal = context.filesDir.absolutePath
     val external = context.getExternalFilesDir(null)?.absolutePath

@@ -106,6 +106,10 @@ export const mutations = {
     } else {
       state.itemDownloads.push(downloadItem)
     }
+    state.itemDownloads.sort((a, b) => Number(a.queuePosition || 0) - Number(b.queuePosition || 0))
+  },
+  setItemDownloadsOrder(state, downloadItems) {
+    state.itemDownloads = downloadItems
   },
   updateDownloadItemPart(state, downloadItemPart) {
     const downloadItem = state.itemDownloads.find((i) => i.id == downloadItemPart.downloadItemId)

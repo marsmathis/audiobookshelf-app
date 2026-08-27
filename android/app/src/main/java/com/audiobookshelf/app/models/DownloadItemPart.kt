@@ -40,7 +40,13 @@ data class DownloadItemPart(
   @JsonIgnore var retryCount: Int = 0,
   @JsonIgnore var authRetryCount: Int = 0,
   @JsonIgnore var waitingForSpace: Boolean = false,
-  @JsonIgnore var reusedExistingFile: Boolean = false
+  @JsonIgnore var reusedExistingFile: Boolean = false,
+  var waitingForNetwork: Boolean = false,
+  var waitingForWifi: Boolean = false,
+  var waitingForRetry: Boolean = false,
+  var retryAfterTime: Long? = null,
+  var lastError: String? = null,
+  var bytesPerSecond: Long = 0
 ) {
   companion object {
     fun make(downloadItemId:String, filename:String, fileSize: Long, destinationFile: File, finalDestinationFile: File, subfolder:String, serverPath:String, localFolder: LocalFolder, ebookFile: EBookFile?, audioTrack: AudioTrack?, episode: PodcastEpisode?) :DownloadItemPart {

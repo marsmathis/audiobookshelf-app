@@ -490,6 +490,15 @@ export default {
         this.libraryItemUpdated(ab)
       })
     },
+    localLibraryItemsDeleted(libraryItemIds) {
+      const deletedIds = new Set(libraryItemIds || [])
+      this.localLibraryItems = this.localLibraryItems.filter((item) => !deletedIds.has(item.libraryItemId))
+      this.entities.forEach((entity, index) => {
+        if (entity && deletedIds.has(entity.id) && this.entityComponentRefs[index]) {
+          this.entityComponentRefs[index].setLocalLibraryItem(null)
+        }
+      })
+    },
     screenOrientationChange() {
       setTimeout(() => {
         console.log('LazyBookshelf Screen orientation change')
@@ -504,6 +513,7 @@ export default {
 
       this.$eventBus.$on('library-changed', this.libraryChanged)
       this.$eventBus.$on('user-settings', this.settingsUpdated)
+      this.$eventBus.$on('local-library-items-deleted', this.localLibraryItemsDeleted)
 
       this.$socket.$on('item_updated', this.libraryItemUpdated)
       this.$socket.$on('item_added', this.libraryItemAdded)
@@ -526,6 +536,7 @@ export default {
 
       this.$eventBus.$off('library-changed', this.libraryChanged)
       this.$eventBus.$off('user-settings', this.settingsUpdated)
+      this.$eventBus.$off('local-library-items-deleted', this.localLibraryItemsDeleted)
 
       this.$socket.$off('item_updated', this.libraryItemUpdated)
       this.$socket.$off('item_added', this.libraryItemAdded)

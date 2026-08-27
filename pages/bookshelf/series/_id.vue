@@ -1,10 +1,15 @@
 <template>
-  <bookshelf-lazy-bookshelf page="series-books" :series-id="seriesId" v-on:downloadSeriesClick="downloadSeriesClick" />
+  <div class="relative h-full w-full">
+    <bookshelf-lazy-bookshelf page="series-books" :series-id="seriesId" v-on:downloadSeriesClick="downloadSeriesClick" />
+    <div v-show="processingDeleteLocalFiles" class="absolute inset-0 z-30 flex items-center justify-center bg-black bg-opacity-40">
+      <ui-loading-indicator />
+    </div>
+  </div>
 </template>
 
 <script>
 import { Dialog } from '@capacitor/dialog'
-import { AbsDownloader } from '@/plugins/capacitor'
+import { AbsDownloader, AbsFileSystem } from '@/plugins/capacitor'
 import cellularPermissionHelpers from '@/mixins/cellularPermissionHelpers'
 
 export default {
@@ -30,7 +35,8 @@ export default {
       books: 0,
       missingFiles: 0,
       missingFilesSize: 0,
-      libraryIds: []
+      libraryIds: [],
+      processingDeleteLocalFiles: false
     }
   },
   mixins: [cellularPermissionHelpers],
@@ -40,6 +46,53 @@ export default {
     }
   },
   methods: {
+    itemBelongsToSeries(item, seriesBookIds) {
+      if (seriesBookIds.has(item.libraryItemId || item.id)) return true
+      const memberships = item.media?.metadata?.series
+      if (Array.isArray(memberships)) return memberships.some((series) => series.id === this.seriesId)
+      return memberships?.id === this.seriesId
+    },
+    async deleteSeriesLocalFiles() {
+      if (this.processingDeleteLocalFiles) return
+      const seriesBookIds = new Set((this.series.books || []).map((book) => book.id || book.libraryItemId))
+      const localItems = ((await this.$db.getLocalLibraryItems('book')) || []).filter((item) => this.itemBelongsToSeries(item, seriesBookIds))
+      const queuedItems = this.$store.state.globals.itemDownloads.filter((item) => this.itemBelongsToSeries(item, seriesBookIds))
+      const affectedItemIds = new Set([...localItems.map((item) => item.libraryItemId), ...queuedItems.map((item) => item.libraryItemId)])
+      if (!affectedItemIds.size) {
+        this.$toast.info(this.$strings.MessageNoLocalFilesToDelete)
+        return
+      }
+
+      const { value } = await Dialog.confirm({
+        title: this.$strings.HeaderConfirm,
+        message: this.$getString('MessageConfirmDeleteAllLocalFiles', [this.series.name, affectedItemIds.size])
+      })
+      if (!value) return
+
+      this.processingDeleteLocalFiles = true
+      const deletedLibraryItemIds = []
+      let failed = 0
+      try {
+        for (const queuedItem of queuedItems) {
+          const result = await AbsDownloader.cancelDownloadItem({ downloadItemId: queuedItem.id })
+          if (result?.value !== false) this.$store.commit('globals/removeItemDownload', queuedItem.id)
+          else failed++
+        }
+        for (const localItem of localItems) {
+          const result = await AbsFileSystem.deleteItem(localItem)
+          if (result?.success) deletedLibraryItemIds.push(localItem.libraryItemId)
+          else failed++
+        }
+      } finally {
+        this.processingDeleteLocalFiles = false
+      }
+      if (deletedLibraryItemIds.length) {
+        this.$eventBus.$emit('local-library-items-deleted', deletedLibraryItemIds)
+      }
+      const removed = affectedItemIds.size - failed
+      if (removed) this.$toast.success(this.$getString('MessageLocalFilesDeleted', [removed]))
+      if (failed) this.$toast.error(this.$getString('MessageLocalFilesDeleteFailed', [failed]))
+    },
     async downloadSeriesClick() {
       console.log('Download Series clicked')
       if (this.startingDownload) return
@@ -128,6 +181,7 @@ export default {
       let fetchFinished = false
       this.missingFiles = 0
       this.missingFilesSize = 0
+      this.libraryIds = []
       while (fetchFinished === false) {
         fetchFinished = await this.fetchSeriesEntities(page)
         page += 1
@@ -153,14 +207,17 @@ export default {
       })
       if (value) {
         for (let i = 0; i < this.libraryIds.length; i++) {
-          this.startDownload(localFolder, this.libraryIds[i])
+          // Keep series order deterministic. Each native request resolves only
+          // after its item has been appended to the download queue.
+          await this.startDownload(localFolder, this.libraryIds[i])
         }
       }
       this.libraryIds = []
     },
     async startDownload(localFolder = null, libraryItemId) {
       const payload = {
-        libraryItemId: libraryItemId
+        libraryItemId: libraryItemId,
+        allowCellularDownload: this.getDownloadAllowsCellular()
       }
       if (localFolder) {
         console.log('Starting download to local folder', localFolder.name)
@@ -176,9 +233,11 @@ export default {
   },
   mounted() {
     this.$eventBus.$on('download-series-click', this.downloadSeriesClick)
+    this.$eventBus.$on('delete-series-local-files', this.deleteSeriesLocalFiles)
   },
   beforeDestroy() {
     this.$eventBus.$off('download-series-click', this.downloadSeriesClick)
+    this.$eventBus.$off('delete-series-local-files', this.deleteSeriesLocalFiles)
   }
 }
 </script>

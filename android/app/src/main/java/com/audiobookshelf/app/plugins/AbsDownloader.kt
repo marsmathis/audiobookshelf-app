@@ -61,8 +61,13 @@ class AbsDownloader : Plugin() {
             call.getString("preparing") ?: "Preparing downloads",
             call.getString("downloadingFile") ?: "Downloading {0}",
             call.getString("waitingForStorage") ?: "Waiting for available storage",
+            call.getString("waitingForNetwork") ?: "Waiting for network",
+            call.getString("waitingForWifi") ?: "Waiting for Wi-Fi",
+            call.getString("paused") ?: "Downloads paused",
             call.getString("downloads") ?: "Downloads",
-            call.getString("cancel") ?: "Cancel")
+            call.getString("cancel") ?: "Cancel",
+            call.getString("pause") ?: "Pause",
+            call.getString("resume") ?: "Resume")
     call.resolve()
   }
 
@@ -83,6 +88,7 @@ class AbsDownloader : Plugin() {
     var episodeId = call.data.getString("episodeId").toString()
     if (episodeId == "null") episodeId = ""
     var localFolderId = call.data.getString("localFolderId", "").toString()
+    val allowCellularDownload = call.getBoolean("allowCellularDownload", false) ?: false
     AbsLogger.info(tag, "Requested download for item $libraryItemId${if (episodeId.isEmpty()) "" else " / episode $episodeId"}")
 
     val downloadId = if (episodeId.isEmpty()) libraryItemId else "$libraryItemId-$episodeId"
@@ -120,10 +126,10 @@ class AbsDownloader : Plugin() {
                 if (episode == null) {
                   call.resolve(JSObject("{\"error\":\"Invalid podcast episode not found\"}"))
                 } else {
-                  startLibraryItemDownload(libraryItem, localFolder, episode) { error -> resolveDownloadCall(call, error) }
+                  startLibraryItemDownload(libraryItem, localFolder, episode, allowCellularDownload) { error -> resolveDownloadCall(call, error) }
                 }
               } else {
-                startLibraryItemDownload(libraryItem, localFolder, null) { error -> resolveDownloadCall(call, error) }
+                startLibraryItemDownload(libraryItem, localFolder, null, allowCellularDownload) { error -> resolveDownloadCall(call, error) }
               }
             }
           }
@@ -135,6 +141,75 @@ class AbsDownloader : Plugin() {
   private fun resolveDownloadCall(call: PluginCall, error: String?) {
     if (error == null) call.resolve()
     else call.resolve(JSObject().put("error", error))
+  }
+
+  @PluginMethod
+  fun pauseDownloadItem(call: PluginCall) {
+    val downloadItemId = call.getString("downloadItemId", "")
+    val paused = DownloadServiceHost.pause(mainActivity, downloadItemId ?: "")
+    call.resolve(JSObject().put("value", paused))
+  }
+
+  @PluginMethod
+  fun resumeDownloadItem(call: PluginCall) {
+    val downloadItemId = call.getString("downloadItemId", "")
+    val resumed = DownloadServiceHost.resume(mainActivity, downloadItemId ?: "")
+    call.resolve(JSObject().put("value", resumed))
+  }
+
+  @PluginMethod
+  fun pauseAllDownloadItems(call: PluginCall) {
+    val paused = DownloadServiceHost.pauseAll(mainActivity)
+    call.resolve(JSObject().put("value", paused))
+  }
+
+  @PluginMethod
+  fun resumeAllDownloadItems(call: PluginCall) {
+    val resumed = DownloadServiceHost.resumeAll(mainActivity)
+    call.resolve(JSObject().put("value", resumed))
+  }
+
+  @PluginMethod
+  fun allowCellularForAllDownloadItems(call: PluginCall) {
+    val changed = DownloadServiceHost.allowCellularForAll(mainActivity)
+    call.resolve(JSObject().put("value", changed))
+  }
+
+  @PluginMethod
+  fun retryDownloadItem(call: PluginCall) {
+    val downloadItemId = call.getString("downloadItemId", "")
+    val retried = DownloadServiceHost.retry(mainActivity, downloadItemId ?: "")
+    call.resolve(JSObject().put("value", retried))
+  }
+
+  @PluginMethod
+  fun cancelDownloadItem(call: PluginCall) {
+    val downloadItemId = call.getString("downloadItemId", "")
+    val cancelled = DownloadServiceHost.cancel(mainActivity, downloadItemId ?: "")
+    call.resolve(JSObject().put("value", cancelled))
+  }
+
+  @PluginMethod
+  fun cancelAllDownloadItems(call: PluginCall) {
+    DownloadServiceHost.cancelAll(mainActivity)
+    call.resolve(JSObject().put("value", true))
+  }
+
+  @PluginMethod
+  fun getQueueStorageStats(call: PluginCall) {
+    call.resolve(DownloadServiceHost.ensure(mainActivity).getQueueStorageStats())
+  }
+
+  @PluginMethod
+  fun reorderDownloadItems(call: PluginCall) {
+    val ids = call.getArray("downloadItemIds")
+    if (ids == null) {
+      call.resolve(JSObject().put("value", false))
+      return
+    }
+    val downloadItemIds = (0 until ids.length()).map { ids.optString(it) }
+    val reordered = DownloadServiceHost.reorder(mainActivity, downloadItemIds)
+    call.resolve(JSObject().put("value", reordered))
   }
 
   // Item filenames could be the same if they are in sub-folders, this will make them unique
@@ -161,6 +236,7 @@ class AbsDownloader : Plugin() {
           libraryItem: LibraryItem,
           localFolder: LocalFolder,
           episode: PodcastEpisode?,
+          allowCellularDownload: Boolean,
           callback: (String?) -> Unit
   ) {
     val isInternal = localFolder.id.startsWith("internal-")
@@ -182,7 +258,7 @@ class AbsDownloader : Plugin() {
       AbsLogger.info(tag, "Queueing library item download with ${tracks.size} files")
       val itemSubfolder = "$bookAuthor/$bookTitle"
       val itemFolderPath = if (isInternal) finalInternalFolderPath else "${localFolder.absolutePath}/$itemSubfolder"
-      val downloadItem = DownloadItem(libraryItem.id, libraryItem.id, null, libraryItem.userMediaProgress,DeviceManager.serverConnectionConfig?.id ?: "", DeviceManager.serverConnectionConfig?.address ?: "", DeviceManager.serverUserId, libraryItem.mediaType, itemFolderPath, localFolder, bookTitle, itemSubfolder, libraryItem.media, mutableListOf())
+      val downloadItem = DownloadItem(libraryItem.id, libraryItem.id, null, libraryItem.userMediaProgress,DeviceManager.serverConnectionConfig?.id ?: "", DeviceManager.serverConnectionConfig?.address ?: "", DeviceManager.serverUserId, libraryItem.mediaType, itemFolderPath, localFolder, bookTitle, itemSubfolder, libraryItem.media, mutableListOf(), allowCellularDownload)
 
       val book = libraryItem.media as Book
       book.ebookFile?.let { ebookFile ->
@@ -242,7 +318,7 @@ class AbsDownloader : Plugin() {
       AbsLogger.info(tag, "Queueing podcast episode download")
       val itemFolderPath = if (isInternal) finalInternalFolderPath else "${localFolder.absolutePath}/$podcastTitle"
       val downloadItemId = "${libraryItem.id}-${episode?.id}"
-      val downloadItem = DownloadItem(downloadItemId, libraryItem.id, episode?.id, libraryItem.userMediaProgress, DeviceManager.serverConnectionConfig?.id ?: "", DeviceManager.serverConnectionConfig?.address ?: "", DeviceManager.serverUserId, libraryItem.mediaType, itemFolderPath, localFolder, podcastTitle, podcastTitle, libraryItem.media, mutableListOf())
+      val downloadItem = DownloadItem(downloadItemId, libraryItem.id, episode?.id, libraryItem.userMediaProgress, DeviceManager.serverConnectionConfig?.id ?: "", DeviceManager.serverConnectionConfig?.address ?: "", DeviceManager.serverUserId, libraryItem.mediaType, itemFolderPath, localFolder, podcastTitle, podcastTitle, libraryItem.media, mutableListOf(), allowCellularDownload)
 
       var serverPath = "/api/items/${libraryItem.id}/file/${audioFileIno}/download"
       var destinationFilename = getFilenameFromRelPath(audioTrack?.relPath ?: "")

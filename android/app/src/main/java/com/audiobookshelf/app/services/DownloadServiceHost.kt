@@ -24,8 +24,13 @@ object DownloadServiceHost {
           val preparing: String,
           val downloadingFile: String,
           val waitingForStorage: String,
+          val waitingForNetwork: String,
+          val waitingForWifi: String,
+          val paused: String,
           val downloads: String,
-          val cancel: String
+          val cancel: String,
+          val pause: String,
+          val resume: String
   )
 
   private var manager: DownloadItemManager? = null
@@ -109,21 +114,75 @@ object DownloadServiceHost {
     }
   }
 
+  @Synchronized
+  fun pause(context: Context, downloadItemId: String): Boolean = ensure(context).pauseDownloadItem(downloadItemId)
+
+  @Synchronized
+  fun pauseAll(context: Context): Boolean = ensure(context).pauseAllDownloadItems()
+
+  @Synchronized
+  fun resume(context: Context, downloadItemId: String): Boolean {
+    val resumed = ensure(context).resumeDownloadItem(downloadItemId)
+    if (resumed) startService(context)
+    return resumed
+  }
+
+  @Synchronized
+  fun resumeAll(context: Context): Boolean {
+    val resumed = ensure(context).resumeAllDownloadItems()
+    if (resumed) startService(context)
+    return resumed
+  }
+
+  @Synchronized
+  fun allowCellularForAll(context: Context): Boolean {
+    val changed = ensure(context).allowCellularForAllDownloadItems()
+    if (changed) startService(context)
+    return changed
+  }
+
+  @Synchronized
+  fun retry(context: Context, downloadItemId: String): Boolean {
+    val retried = ensure(context).retryFailedDownloadItem(downloadItemId)
+    if (retried) startService(context)
+    return retried
+  }
+
+  @Synchronized
+  fun cancel(context: Context, downloadItemId: String): Boolean = ensure(context).cancelDownloadItem(downloadItemId)
+
+  @Synchronized
+  fun reorder(context: Context, downloadItemIds: List<String>): Boolean {
+    val reordered = ensure(context).reorderDownloadItems(downloadItemIds)
+    if (reordered && ensure(context).hasWork()) startService(context)
+    return reordered
+  }
+
   fun setNotificationStrings(
           context: Context,
           preparing: String,
           downloadingFile: String,
           waitingForStorage: String,
+          waitingForNetwork: String,
+          waitingForWifi: String,
+          paused: String,
           downloads: String,
-          cancel: String
+          cancel: String,
+          pause: String,
+          resume: String
   ) {
     context.getSharedPreferences(NOTIFICATION_PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_PREPARING, preparing)
             .putString(KEY_DOWNLOADING_FILE, downloadingFile)
             .putString(KEY_WAITING_FOR_STORAGE, waitingForStorage)
+            .putString(KEY_WAITING_FOR_NETWORK, waitingForNetwork)
+            .putString(KEY_WAITING_FOR_WIFI, waitingForWifi)
+            .putString(KEY_PAUSED, paused)
             .putString(KEY_DOWNLOADS, downloads)
             .putString(KEY_CANCEL, cancel)
+            .putString(KEY_PAUSE, pause)
+            .putString(KEY_RESUME, resume)
             .apply()
   }
 
@@ -135,8 +194,15 @@ object DownloadServiceHost {
                     ?: DEFAULT_DOWNLOADING_FILE,
             preferences.getString(KEY_WAITING_FOR_STORAGE, DEFAULT_WAITING_FOR_STORAGE)
                     ?: DEFAULT_WAITING_FOR_STORAGE,
+            preferences.getString(KEY_WAITING_FOR_NETWORK, DEFAULT_WAITING_FOR_NETWORK)
+                    ?: DEFAULT_WAITING_FOR_NETWORK,
+            preferences.getString(KEY_WAITING_FOR_WIFI, DEFAULT_WAITING_FOR_WIFI)
+                    ?: DEFAULT_WAITING_FOR_WIFI,
+            preferences.getString(KEY_PAUSED, DEFAULT_PAUSED) ?: DEFAULT_PAUSED,
             preferences.getString(KEY_DOWNLOADS, DEFAULT_DOWNLOADS) ?: DEFAULT_DOWNLOADS,
-            preferences.getString(KEY_CANCEL, DEFAULT_CANCEL) ?: DEFAULT_CANCEL)
+            preferences.getString(KEY_CANCEL, DEFAULT_CANCEL) ?: DEFAULT_CANCEL,
+            preferences.getString(KEY_PAUSE, DEFAULT_PAUSE) ?: DEFAULT_PAUSE,
+            preferences.getString(KEY_RESUME, DEFAULT_RESUME) ?: DEFAULT_RESUME)
   }
 
   fun attachService(downloadService: DownloadService) {
@@ -187,7 +253,7 @@ object DownloadServiceHost {
     }
     override fun onQueueChanged(hasWork: Boolean) {
       bridgeEmitter.onQueueChanged(hasWork)
-      service?.onQueueChanged(hasWork)
+      service?.onQueueChanged(hasWork, manager?.hasPausedItems() == true)
     }
   }
 
@@ -202,12 +268,22 @@ object DownloadServiceHost {
   private const val KEY_PREPARING = "preparing"
   private const val KEY_DOWNLOADING_FILE = "downloading_file"
   private const val KEY_WAITING_FOR_STORAGE = "waiting_for_storage"
+  private const val KEY_WAITING_FOR_NETWORK = "waiting_for_network"
+  private const val KEY_WAITING_FOR_WIFI = "waiting_for_wifi"
+  private const val KEY_PAUSED = "paused"
   private const val KEY_DOWNLOADS = "downloads"
   private const val KEY_CANCEL = "cancel"
+  private const val KEY_PAUSE = "pause"
+  private const val KEY_RESUME = "resume"
   private const val DEFAULT_PREPARING = "Preparing downloads"
   private const val DEFAULT_DOWNLOADING_FILE = "Downloading {0}"
   private const val DEFAULT_WAITING_FOR_STORAGE = "Waiting for available storage"
+  private const val DEFAULT_WAITING_FOR_NETWORK = "Waiting for network"
+  private const val DEFAULT_WAITING_FOR_WIFI = "Waiting for Wi-Fi"
+  private const val DEFAULT_PAUSED = "Downloads paused"
   private const val DEFAULT_DOWNLOADS = "Downloads"
   private const val DEFAULT_CANCEL = "Cancel"
   private const val TAG = "DownloadServiceHost"
+  private const val DEFAULT_PAUSE = "Pause"
+  private const val DEFAULT_RESUME = "Resume"
 }
