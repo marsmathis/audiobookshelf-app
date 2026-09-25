@@ -20,9 +20,14 @@ class DownloadItem: Object, Codable {
     @Persisted var itemTitle: String?
     @Persisted var media: MediaType?
     @Persisted var downloadItemParts = List<DownloadItemPart>()
+    @Persisted var allowCellularDownload: Bool = false
+    @Persisted var isPaused: Bool = false
+    @Persisted var queuePosition: Int = 0
+    @Persisted var terminalFailureAt: Double?
     
     private enum CodingKeys : String, CodingKey {
         case id, libraryItemId, episodeId, serverConnectionConfigId, serverAddress, serverUserId, mediaType, itemTitle, downloadItemParts
+        case allowCellularDownload, isPaused, queuePosition
     }
     
     override init() {
@@ -41,6 +46,9 @@ class DownloadItem: Object, Codable {
         serverUserId = try? values.decode(String.self, forKey: .serverUserId)
         mediaType = try? values.decode(String.self, forKey: .mediaType)
         itemTitle = try? values.decode(String.self, forKey: .itemTitle)
+        allowCellularDownload = (try? values.decode(Bool.self, forKey: .allowCellularDownload)) ?? false
+        isPaused = (try? values.decode(Bool.self, forKey: .isPaused)) ?? false
+        queuePosition = (try? values.decode(Int.self, forKey: .queuePosition)) ?? 0
         if let parts = try? values.decode([DownloadItemPart].self, forKey: .downloadItemParts) {
             downloadItemParts.append(objectsIn: parts)
         }
@@ -57,6 +65,9 @@ class DownloadItem: Object, Codable {
         try container.encode(mediaType, forKey: .mediaType)
         try container.encode(itemTitle, forKey: .itemTitle)
         try container.encode(Array(downloadItemParts), forKey: .downloadItemParts)
+        try container.encode(allowCellularDownload, forKey: .allowCellularDownload)
+        try container.encode(isPaused, forKey: .isPaused)
+        try container.encode(queuePosition, forKey: .queuePosition)
     }
 }
 

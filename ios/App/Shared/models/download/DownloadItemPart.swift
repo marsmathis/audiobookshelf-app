@@ -25,9 +25,22 @@ class DownloadItemPart: Object, Codable {
     @Persisted var destinationUri: String?
     @Persisted var progress: Double = 0
     @Persisted var bytesDownloaded: Double = 0
+    @Persisted var downloadId: Int?
+    @Persisted var isMoving: Bool = false
+    @Persisted var waitingForSpace: Bool = false
+    @Persisted var waitingForNetwork: Bool = false
+    @Persisted var waitingForWifi: Bool = false
+    @Persisted var waitingForRetry: Bool = false
+    @Persisted var retryAfterTime: Double?
+    @Persisted var lastError: String?
+    @Persisted var bytesPerSecond: Double = 0
+    @Persisted var retryCount: Int = 0
+    @Persisted var resumeData: Data?
     
     private enum CodingKeys : String, CodingKey {
         case id, downloadItemId, filename, fileSize, itemTitle, completed, moved, failed, progress, bytesDownloaded
+        case downloadId, isMoving, waitingForSpace, waitingForNetwork, waitingForWifi, waitingForRetry
+        case retryAfterTime, lastError, bytesPerSecond
     }
     
     override init() {
@@ -46,6 +59,15 @@ class DownloadItemPart: Object, Codable {
         failed = try values.decode(Bool.self, forKey: .failed)
         progress = try values.decode(Double.self, forKey: .progress)
         bytesDownloaded = try values.decode(Double.self, forKey: .bytesDownloaded)
+        downloadId = try? values.decode(Int.self, forKey: .downloadId)
+        isMoving = (try? values.decode(Bool.self, forKey: .isMoving)) ?? false
+        waitingForSpace = (try? values.decode(Bool.self, forKey: .waitingForSpace)) ?? false
+        waitingForNetwork = (try? values.decode(Bool.self, forKey: .waitingForNetwork)) ?? false
+        waitingForWifi = (try? values.decode(Bool.self, forKey: .waitingForWifi)) ?? false
+        waitingForRetry = (try? values.decode(Bool.self, forKey: .waitingForRetry)) ?? false
+        retryAfterTime = try? values.decode(Double.self, forKey: .retryAfterTime)
+        lastError = try? values.decode(String.self, forKey: .lastError)
+        bytesPerSecond = (try? values.decode(Double.self, forKey: .bytesPerSecond)) ?? 0
     }
     
     func encode(to encoder: Encoder) throws {
@@ -60,6 +82,15 @@ class DownloadItemPart: Object, Codable {
         try container.encode(failed, forKey: .failed)
         try container.encode(progress, forKey: .progress)
         try container.encode(bytesDownloaded, forKey: .bytesDownloaded)
+        try container.encode(downloadId, forKey: .downloadId)
+        try container.encode(isMoving, forKey: .isMoving)
+        try container.encode(waitingForSpace, forKey: .waitingForSpace)
+        try container.encode(waitingForNetwork, forKey: .waitingForNetwork)
+        try container.encode(waitingForWifi, forKey: .waitingForWifi)
+        try container.encode(waitingForRetry, forKey: .waitingForRetry)
+        try container.encode(retryAfterTime, forKey: .retryAfterTime)
+        try container.encode(lastError, forKey: .lastError)
+        try container.encode(bytesPerSecond, forKey: .bytesPerSecond)
     }
 }
 

@@ -139,7 +139,7 @@ export default {
       }
     },
     canReorder() {
-      return this.$platform === 'android' && this.downloadItems.length > 1
+      return this.downloadItems.length > 1
     },
     hasPausableItems() {
       return this.downloadItems.some((item) => !item.isPaused && !this.isFailedItem(item) && this.getItemProgress(item.downloadItemParts || []) < 1)
@@ -332,7 +332,6 @@ export default {
       return id === 'internal' ? this.$strings.LabelInternalAppStorage : this.$strings.LabelSharedStorageStaging
     },
     async refreshStorageStats() {
-      if (this.$platform !== 'android') return
       try {
         const result = await AbsDownloader.getQueueStorageStats()
         this.storageLocations = result?.locations || []

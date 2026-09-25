@@ -144,6 +144,14 @@ class AbsDownloader : Plugin() {
   }
 
   @PluginMethod
+  fun getDownloadItems(call: PluginCall) {
+    val items = downloadItemManager.downloadItemQueue.map { item ->
+      JSObject(jacksonMapper.writeValueAsString(item))
+    }
+    call.resolve(JSObject().put("items", items))
+  }
+
+  @PluginMethod
   fun pauseDownloadItem(call: PluginCall) {
     val downloadItemId = call.getString("downloadItemId", "")
     val paused = DownloadServiceHost.pause(mainActivity, downloadItemId ?: "")

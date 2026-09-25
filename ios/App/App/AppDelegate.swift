@@ -81,6 +81,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                         newObject?["localAddress"] = nil
                     }
                 }
+                if (oldSchemaVersion < 22) {
+                    AbsLogger.info(message: "Realm schema version was \(oldSchemaVersion)... Adding resilient download queue state")
+                }
             }
         )
         Realm.Configuration.defaultConfiguration = configuration

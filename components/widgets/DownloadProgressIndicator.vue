@@ -93,6 +93,12 @@ export default {
     this.itemPartUpdateListener = await AbsDownloader.addListener('onDownloadItemPartUpdate', (data) => this.onDownloadItemPartUpdate(data))
     this.queueChangedListener = await AbsDownloader.addListener('onQueueChanged', (data) => this.onQueueChanged(data))
     this.completeListener = await AbsDownloader.addListener('onItemDownloadComplete', (data) => this.onItemDownloadComplete(data))
+    try {
+      const result = await AbsDownloader.getDownloadItems()
+      ;(result?.items || []).forEach((item) => this.onDownloadItem(item))
+    } catch (error) {
+      console.warn('Failed to restore download queue in UI', error)
+    }
   },
   beforeDestroy() {
     this.downloadItemListener?.remove()
